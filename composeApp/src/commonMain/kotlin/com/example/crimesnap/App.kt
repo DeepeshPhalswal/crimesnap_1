@@ -138,8 +138,11 @@ fun ReportScreen(onBack: () -> Unit, onSubmit: (String, String, String) -> Unit)
     var crimeType by remember { mutableStateOf("") }
     var detectedLocation by remember { mutableStateOf("Detecting location...") }
     var description by remember { mutableStateOf("") }
+    
     var showPermissionDialog by remember { mutableStateOf(false) }
     var showGpsDialog by remember { mutableStateOf(false) }
+    var showCameraPermissionDialog by remember { mutableStateOf(false) }
+    var showAudioPermissionDialog by remember { mutableStateOf(false) }
     
     var photoPath by remember { mutableStateOf<String?>(null) }
     var videoPath by remember { mutableStateOf<String?>(null) }
@@ -164,13 +167,13 @@ fun ReportScreen(onBack: () -> Unit, onSubmit: (String, String, String) -> Unit)
     if (showPermissionDialog) {
         AlertDialog(
             onDismissRequest = { showPermissionDialog = false },
-            title = { Text("Permission Required") },
-            text = { Text("CrimeSnap needs location access to verify incident coordinates for evidence integrity.") },
+            title = { Text("Location Permission") },
+            text = { Text("CrimeSnap needs location access to verify incident coordinates.") },
             confirmButton = {
                 TextButton(onClick = { 
                     showPermissionDialog = false
                     platform.requestLocationPermission()
-                }) { Text("Try Again") }
+                }) { Text("Allow") }
             },
             dismissButton = {
                 TextButton(onClick = { showPermissionDialog = false }) { Text("Cancel") }
@@ -182,15 +185,49 @@ fun ReportScreen(onBack: () -> Unit, onSubmit: (String, String, String) -> Unit)
         AlertDialog(
             onDismissRequest = { showGpsDialog = false },
             title = { Text("GPS Disabled") },
-            text = { Text("Your GPS is turned off. Please turn it on to capture the incident location.") },
+            text = { Text("Please turn on GPS to capture the incident location.") },
             confirmButton = {
                 TextButton(onClick = { 
                     showGpsDialog = false
                     platform.requestLocationSettings()
-                }) { Text("Turn On GPS") }
+                }) { Text("Turn On") }
             },
             dismissButton = {
                 TextButton(onClick = { showGpsDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showCameraPermissionDialog) {
+        AlertDialog(
+            onDismissRequest = { showCameraPermissionDialog = false },
+            title = { Text("Camera Permission") },
+            text = { Text("CrimeSnap needs camera access to capture visual evidence.") },
+            confirmButton = {
+                TextButton(onClick = { 
+                    showCameraPermissionDialog = false
+                    platform.requestCameraPermission()
+                }) { Text("Allow") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCameraPermissionDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showAudioPermissionDialog) {
+        AlertDialog(
+            onDismissRequest = { showAudioPermissionDialog = false },
+            title = { Text("Microphone Permission") },
+            text = { Text("CrimeSnap needs microphone access to record audio evidence.") },
+            confirmButton = {
+                TextButton(onClick = { 
+                    showAudioPermissionDialog = false
+                    platform.requestAudioPermission()
+                }) { Text("Allow") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAudioPermissionDialog = false }) { Text("Cancel") }
             }
         )
     }
@@ -267,19 +304,34 @@ fun ReportScreen(onBack: () -> Unit, onSubmit: (String, String, String) -> Unit)
                     icon = Icons.Default.PhotoCamera, 
                     label = "Photo",
                     isCaptured = photoPath != null,
-                    onClick = { platform.capturePhoto { photoPath = it } }
+                    onClick = { 
+                        platform.capturePhoto { result ->
+                            if (result == "PERMISSION_REQUIRED") showCameraPermissionDialog = true
+                            else photoPath = result
+                        }
+                    }
                 )
                 EvidenceButton(
                     icon = Icons.Default.Videocam, 
                     label = "Video",
                     isCaptured = videoPath != null,
-                    onClick = { platform.captureVideo { videoPath = it } }
+                    onClick = { 
+                        platform.captureVideo { result ->
+                            if (result == "PERMISSION_REQUIRED") showCameraPermissionDialog = true
+                            else videoPath = result
+                        }
+                    }
                 )
                 EvidenceButton(
                     icon = Icons.Default.Mic, 
                     label = "Audio",
                     isCaptured = audioPath != null,
-                    onClick = { platform.recordAudio { audioPath = it } }
+                    onClick = { 
+                        platform.recordAudio { result ->
+                            if (result == "PERMISSION_REQUIRED") showAudioPermissionDialog = true
+                            else audioPath = result
+                        }
+                    }
                 )
             }
 
@@ -332,49 +384,7 @@ fun EvidenceButton(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(historyItems: List<String>, onBack: () -> Unit) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Lifetime History") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                )
-            )
-        }
-    ) { padding ->
-        if (historyItems.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("No reports found.")
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(historyItems) { item ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                    ) {
-                        Text(
-                            text = item,
-                            modifier = Modifier.padding(16.dp),
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                    }
-                }
-            }
-        }
-    }
+    // ... (unchanged)
 }
 
 fun getCurrentDate(): String {

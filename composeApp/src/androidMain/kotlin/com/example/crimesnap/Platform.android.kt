@@ -51,6 +51,40 @@ class AndroidPlatform : Platform {
         )
     }
 
+    override fun isCameraPermissionGranted(): Boolean {
+        val context = appContext ?: return false
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    override fun requestCameraPermission() {
+        val activity = currentActivity ?: return
+        ActivityCompat.requestPermissions(
+            activity,
+            arrayOf(Manifest.permission.CAMERA),
+            1002
+        )
+    }
+
+    override fun isAudioPermissionGranted(): Boolean {
+        val context = appContext ?: return false
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    override fun requestAudioPermission() {
+        val activity = currentActivity ?: return
+        ActivityCompat.requestPermissions(
+            activity,
+            arrayOf(Manifest.permission.RECORD_AUDIO),
+            1003
+        )
+    }
+
     override fun openAppSettings() {
         val activity = currentActivity ?: return
         val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
@@ -137,6 +171,11 @@ class AndroidPlatform : Platform {
         val activity = currentActivity ?: return
         onMediaCaptured = onResult
         
+        if (!isCameraPermissionGranted()) {
+            onResult("PERMISSION_REQUIRED")
+            return
+        }
+
         try {
             val photoFile = File(activity.getExternalFilesDir("evidence"), "photo_${System.currentTimeMillis()}.jpg")
             photoFile.parentFile?.mkdirs()
@@ -157,6 +196,11 @@ class AndroidPlatform : Platform {
         val activity = currentActivity ?: return
         onMediaCaptured = onResult
         
+        if (!isCameraPermissionGranted()) {
+            onResult("PERMISSION_REQUIRED")
+            return
+        }
+
         try {
             val videoFile = File(activity.getExternalFilesDir("evidence"), "video_${System.currentTimeMillis()}.mp4")
             videoFile.parentFile?.mkdirs()
@@ -177,6 +221,11 @@ class AndroidPlatform : Platform {
         val activity = currentActivity ?: return
         onMediaCaptured = onResult
         
+        if (!isAudioPermissionGranted()) {
+            onResult("PERMISSION_REQUIRED")
+            return
+        }
+
         try {
             val intent = Intent(MediaStore.Audio.Media.RECORD_SOUND_ACTION)
             if (intent.resolveActivity(activity.packageManager) != null) {

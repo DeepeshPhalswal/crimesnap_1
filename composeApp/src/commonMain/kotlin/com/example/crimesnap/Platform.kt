@@ -10,6 +10,11 @@ interface Platform {
     fun requestLocationSettings()
     
     // Media Capture
+    fun isCameraPermissionGranted(): Boolean
+    fun requestCameraPermission()
+    fun isAudioPermissionGranted(): Boolean
+    fun requestAudioPermission()
+
     fun capturePhoto(onResult: (String?) -> Unit)
     fun captureVideo(onResult: (String?) -> Unit)
     fun recordAudio(onResult: (String?) -> Unit)
