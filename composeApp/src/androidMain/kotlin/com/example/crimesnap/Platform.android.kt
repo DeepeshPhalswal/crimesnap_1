@@ -13,6 +13,8 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.Composable
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -240,6 +242,11 @@ class AndroidPlatform : Platform {
             onResult(null)
         }
     }
+}
+
+@Composable
+actual fun BackHandler(enabled: Boolean, onBack: () -> Unit) {
+    androidx.activity.compose.BackHandler(enabled, onBack)
 }
 
 actual fun getPlatform(): Platform = AndroidPlatform()

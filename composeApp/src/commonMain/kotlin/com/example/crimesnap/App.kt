@@ -37,6 +37,15 @@ fun App() {
         )
     }
 
+    // Handle back button navigation
+    BackHandler(enabled = currentScreen != Screen.Home) {
+        if (drawerState.isOpen) {
+            scope.launch { drawerState.close() }
+        } else {
+            currentScreen = Screen.Home
+        }
+    }
+
     MaterialTheme {
         ModalNavigationDrawer(
             drawerState = drawerState,
