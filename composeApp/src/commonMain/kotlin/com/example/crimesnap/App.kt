@@ -3,6 +3,8 @@ package com.example.crimesnap
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -13,7 +15,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.tooling.preview.Preview
 
 enum class Screen {
-    Home, History
+    Home, History, Report
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -25,8 +27,8 @@ fun App() {
     // In-memory history list. For "lifetime" history, we will later connect this to a database like Room.
     val reportHistory = remember { 
         mutableStateListOf(
-            "Theft reported on Oct 12, 2023",
-            "Vandalism reported on Nov 5, 2023",
+            "Theft reported at Central Park on Oct 12, 2023",
+            "Vandalism reported at 5th Ave on Nov 5, 2023",
             "Suspicious activity reported on Dec 1, 2023"
         )
     }
@@ -39,14 +41,19 @@ fun App() {
             when (currentScreen) {
                 Screen.Home -> HomeScreen(
                     onNavigateToHistory = { currentScreen = Screen.History },
-                    onReportCrime = { 
-                        // Simulate reporting a crime for now
-                        reportHistory.add(0, "Incident reported on ${getCurrentDate()}")
-                    }
+                    onReportCrime = { currentScreen = Screen.Report }
                 )
                 Screen.History -> HistoryScreen(
                     historyItems = reportHistory,
                     onBack = { currentScreen = Screen.Home }
+                )
+                Screen.Report -> ReportScreen(
+                    onBack = { currentScreen = Screen.Home },
+                    onSubmit = { type, location, desc ->
+                        val report = "$type reported at $location on ${getCurrentDate()}"
+                        reportHistory.add(0, report)
+                        currentScreen = Screen.History
+                    }
                 )
             }
         }
@@ -82,14 +89,6 @@ fun HomeScreen(onNavigateToHistory: () -> Unit, onReportCrime: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurface
             )
             
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            Text(
-                text = "Report incidents quickly and anonymously.",
-                fontSize = 16.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
             Spacer(modifier = Modifier.height(48.dp))
 
             Button(
@@ -131,6 +130,80 @@ fun HomeScreen(onNavigateToHistory: () -> Unit, onReportCrime: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+fun ReportScreen(onBack: () -> Unit, onSubmit: (String, String, String) -> Unit) {
+    var crimeType by remember { mutableStateOf("") }
+    var location by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("New Incident Report") },
+                navigationIcon = {
+                    TextButton(onClick = onBack) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = "Incident Details",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+
+            OutlinedTextField(
+                value = crimeType,
+                onValueChange = { crimeType = it },
+                label = { Text("Type of Crime") },
+                placeholder = { Text("e.g. Theft, Vandalism") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            OutlinedTextField(
+                value = location,
+                onValueChange = { location = it },
+                label = { Text("Location") },
+                placeholder = { Text("Street name or Area") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            OutlinedTextField(
+                value = description,
+                onValueChange = { description = it },
+                label = { Text("Description (Optional)") },
+                modifier = Modifier.fillMaxWidth().height(150.dp),
+                minLines = 3
+            )
+
+            Button(
+                onClick = { 
+                    if (crimeType.isNotEmpty() && location.isNotEmpty()) {
+                        onSubmit(crimeType, location, description)
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                enabled = crimeType.isNotEmpty() && location.isNotEmpty()
+            ) {
+                Text("Submit Report", fontSize = 18.sp)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 fun HistoryScreen(historyItems: List<String>, onBack: () -> Unit) {
     Scaffold(
         topBar = {
@@ -138,7 +211,7 @@ fun HistoryScreen(historyItems: List<String>, onBack: () -> Unit) {
                 title = { Text("Lifetime History") },
                 navigationIcon = {
                     TextButton(onClick = onBack) {
-                        Text("Back")
+                        Text("Home")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -177,7 +250,6 @@ fun HistoryScreen(historyItems: List<String>, onBack: () -> Unit) {
     }
 }
 
-// Simple helper for demo purposes
 fun getCurrentDate(): String {
-    return "Recent Date" // In a real app, use a date formatting library
+    return "Recent Date"
 }
