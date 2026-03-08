@@ -31,7 +31,7 @@ class AndroidPlatform : Platform {
         var currentActivity: Activity? = null
         
         var onMediaCaptured: ((String?) -> Unit)? = null
-        var tempPhotoUri: Uri? = null
+        var tempMediaUri: Uri? = null
     }
 
     override fun isLocationPermissionGranted(): Boolean {
@@ -140,10 +140,10 @@ class AndroidPlatform : Platform {
         try {
             val photoFile = File(activity.getExternalFilesDir("evidence"), "photo_${System.currentTimeMillis()}.jpg")
             photoFile.parentFile?.mkdirs()
-            tempPhotoUri = FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", photoFile)
+            tempMediaUri = FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", photoFile)
             
             val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
-                putExtra(MediaStore.EXTRA_OUTPUT, tempPhotoUri)
+                putExtra(MediaStore.EXTRA_OUTPUT, tempMediaUri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             }
@@ -158,7 +158,15 @@ class AndroidPlatform : Platform {
         onMediaCaptured = onResult
         
         try {
-            val intent = Intent(MediaStore.ACTION_VIDEO_CAPTURE)
+            val videoFile = File(activity.getExternalFilesDir("evidence"), "video_${System.currentTimeMillis()}.mp4")
+            videoFile.parentFile?.mkdirs()
+            tempMediaUri = FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", videoFile)
+
+            val intent = Intent(MediaStore.ACTION_VIDEO_CAPTURE).apply {
+                putExtra(MediaStore.EXTRA_OUTPUT, tempMediaUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            }
             activity.startActivityForResult(intent, 2002)
         } catch (e: Exception) {
             onResult(null)
@@ -170,12 +178,10 @@ class AndroidPlatform : Platform {
         onMediaCaptured = onResult
         
         try {
-            // Check if there is an app available to handle this intent
             val intent = Intent(MediaStore.Audio.Media.RECORD_SOUND_ACTION)
             if (intent.resolveActivity(activity.packageManager) != null) {
                 activity.startActivityForResult(intent, 2003)
             } else {
-                // Alternative for devices without a default sound recorder app
                 val altIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
                     type = "audio/*"
                 }
