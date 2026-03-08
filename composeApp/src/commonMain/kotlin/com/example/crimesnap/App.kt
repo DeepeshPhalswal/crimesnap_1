@@ -56,7 +56,7 @@ fun App() {
                     onSubmit = { type, location, _ ->
                         val report = "$type reported at $location on ${getCurrentDate()}"
                         reportHistory.add(0, report)
-                        currentScreen = Screen.History
+                        currentScreen = Screen.Home
                     }
                 )
             }
@@ -384,7 +384,49 @@ fun EvidenceButton(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(historyItems: List<String>, onBack: () -> Unit) {
-    // ... (unchanged)
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Lifetime History") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    titleContentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            )
+        }
+    ) { padding ->
+        if (historyItems.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Text("No reports found.")
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(historyItems) { item ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Text(
+                            text = item,
+                            modifier = Modifier.padding(16.dp),
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 fun getCurrentDate(): String {
