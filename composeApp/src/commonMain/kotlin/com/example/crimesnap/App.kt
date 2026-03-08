@@ -5,6 +5,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -48,7 +53,7 @@ fun App() {
                 )
                 Screen.Report -> ReportScreen(
                     onBack = { currentScreen = Screen.Home },
-                    onSubmit = { type, location, desc ->
+                    onSubmit = { type, location, _ ->
                         val report = "$type reported at $location on ${getCurrentDate()}"
                         reportHistory.add(0, report)
                         currentScreen = Screen.History
@@ -131,16 +136,72 @@ fun HomeScreen(onNavigateToHistory: () -> Unit, onReportCrime: () -> Unit) {
 @Composable
 fun ReportScreen(onBack: () -> Unit, onSubmit: (String, String, String) -> Unit) {
     var crimeType by remember { mutableStateOf("") }
-    var location by remember { mutableStateOf("") }
+    var detectedLocation by remember { mutableStateOf("Detecting location...") }
     var description by remember { mutableStateOf("") }
+    var showPermissionDialog by remember { mutableStateOf(false) }
+    var showGpsDialog by remember { mutableStateOf(false) }
+    
+    var photoPath by remember { mutableStateOf<String?>(null) }
+    var videoPath by remember { mutableStateOf<String?>(null) }
+    var audioPath by remember { mutableStateOf<String?>(null) }
+    
+    val platform = getPlatform()
+
+    val refreshLocation = {
+        platform.getCurrentLocation { result ->
+            when (result) {
+                "PERMISSION_REQUIRED" -> showPermissionDialog = true
+                "GPS_DISABLED" -> showGpsDialog = true
+                else -> detectedLocation = result
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        refreshLocation()
+    }
+
+    if (showPermissionDialog) {
+        AlertDialog(
+            onDismissRequest = { showPermissionDialog = false },
+            title = { Text("Permission Required") },
+            text = { Text("CrimeSnap needs location access to verify incident coordinates for evidence integrity.") },
+            confirmButton = {
+                TextButton(onClick = { 
+                    showPermissionDialog = false
+                    platform.requestLocationPermission()
+                }) { Text("Try Again") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPermissionDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showGpsDialog) {
+        AlertDialog(
+            onDismissRequest = { showGpsDialog = false },
+            title = { Text("GPS Disabled") },
+            text = { Text("Your GPS is turned off. Please turn it on to capture the incident location.") },
+            confirmButton = {
+                TextButton(onClick = { 
+                    showGpsDialog = false
+                    platform.requestLocationSettings()
+                }) { Text("Turn On GPS") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showGpsDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("New Incident Report") },
                 navigationIcon = {
-                    TextButton(onClick = onBack) {
-                        Text("Cancel")
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
@@ -169,35 +230,102 @@ fun ReportScreen(onBack: () -> Unit, onSubmit: (String, String, String) -> Unit)
             )
 
             OutlinedTextField(
-                value = location,
-                onValueChange = { location = it },
-                label = { Text("Location") },
-                placeholder = { Text("Street name or Area") },
-                modifier = Modifier.fillMaxWidth()
+                value = detectedLocation,
+                onValueChange = { },
+                label = { Text("Auto-Detected Location") },
+                readOnly = true,
+                modifier = Modifier.fillMaxWidth(),
+                supportingText = {
+                    Text("Location is captured automatically for evidence integrity.")
+                },
+                trailingIcon = {
+                    if (detectedLocation == "GPS_DISABLED" || detectedLocation == "Detecting location..." || detectedLocation == "PERMISSION_REQUIRED") {
+                        TextButton(onClick = { refreshLocation() }) { Text("Retry") }
+                    }
+                }
             )
 
             OutlinedTextField(
                 value = description,
                 onValueChange = { description = it },
                 label = { Text("Description (Optional)") },
-                modifier = Modifier.fillMaxWidth().height(150.dp),
+                modifier = Modifier.fillMaxWidth().height(120.dp),
                 minLines = 3
             )
 
+            Text(
+                text = "Add Evidence",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                EvidenceButton(
+                    icon = Icons.Default.PhotoCamera, 
+                    label = "Photo",
+                    isCaptured = photoPath != null,
+                    onClick = { platform.capturePhoto { photoPath = it } }
+                )
+                EvidenceButton(
+                    icon = Icons.Default.Videocam, 
+                    label = "Video",
+                    isCaptured = videoPath != null,
+                    onClick = { platform.captureVideo { videoPath = it } }
+                )
+                EvidenceButton(
+                    icon = Icons.Default.Mic, 
+                    label = "Audio",
+                    isCaptured = audioPath != null,
+                    onClick = { platform.recordAudio { audioPath = it } }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             Button(
                 onClick = { 
-                    if (crimeType.isNotEmpty() && location.isNotEmpty()) {
-                        onSubmit(crimeType, location, description)
+                    if (crimeType.isNotEmpty() && detectedLocation.contains("Lat:")) {
+                        onSubmit(crimeType, detectedLocation, description)
                     }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
-                enabled = crimeType.isNotEmpty() && location.isNotEmpty()
+                enabled = crimeType.isNotEmpty() && detectedLocation.contains("Lat:")
             ) {
-                Text("Submit Report", fontSize = 18.sp)
+                Text("Submit Verified Report", fontSize = 18.sp)
             }
         }
+    }
+}
+
+@Composable
+fun EvidenceButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector, 
+    label: String,
+    isCaptured: Boolean,
+    onClick: () -> Unit
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        FilledTonalIconButton(
+            onClick = onClick,
+            modifier = Modifier.size(64.dp),
+            colors = if (isCaptured) IconButtonDefaults.filledTonalIconButtonColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            ) else IconButtonDefaults.filledTonalIconButtonColors()
+        ) {
+            Icon(icon, contentDescription = label, modifier = Modifier.size(32.dp))
+        }
+        Text(
+            text = if (isCaptured) "Captured" else label, 
+            style = MaterialTheme.typography.labelMedium, 
+            modifier = Modifier.padding(top = 4.dp),
+            color = if (isCaptured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+        )
     }
 }
 
@@ -209,8 +337,8 @@ fun HistoryScreen(historyItems: List<String>, onBack: () -> Unit) {
             TopAppBar(
                 title = { Text("Lifetime History") },
                 navigationIcon = {
-                    TextButton(onClick = onBack) {
-                        Text("Home")
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

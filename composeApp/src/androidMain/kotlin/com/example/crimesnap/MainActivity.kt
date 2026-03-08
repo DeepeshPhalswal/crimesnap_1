@@ -11,10 +11,19 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        
+        // Initialize the app context and current activity for location services
+        AndroidPlatform.appContext = applicationContext
+        AndroidPlatform.currentActivity = this
 
         setContent {
             App()
         }
+    }
+    
+    override fun onResume() {
+        super.onResume()
+        AndroidPlatform.currentActivity = this
     }
 }
 
