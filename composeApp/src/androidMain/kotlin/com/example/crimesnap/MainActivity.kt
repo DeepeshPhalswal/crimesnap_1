@@ -14,7 +14,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         
-        // Initialize the app context and current activity for location services
+        // Initialize the app context and current activity
         AndroidPlatform.appContext = applicationContext
         AndroidPlatform.currentActivity = this
 
@@ -31,23 +31,25 @@ class MainActivity : ComponentActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         
+        if (requestCode == AndroidAuthManager.RC_SIGN_IN) {
+            getAndroidAuthManager().handleSignInResult(data)
+            return
+        }
+
         if (resultCode == Activity.RESULT_OK) {
             when (requestCode) {
                 2001 -> { // Photo
                     AndroidPlatform.onMediaCaptured?.invoke(AndroidPlatform.tempMediaUri?.toString())
                 }
                 2002 -> { // Video
-                    // Video intent might return a Uri in data.data or we use the one we provided
                     val uri = data?.data ?: AndroidPlatform.tempMediaUri
                     AndroidPlatform.onMediaCaptured?.invoke(uri?.toString())
                 }
                 2003 -> { // Audio
-                    // Audio intent usually returns the Uri in data.data
                     AndroidPlatform.onMediaCaptured?.invoke(data?.data?.toString())
                 }
             }
         } else {
-            // User cancelled or capture failed
             AndroidPlatform.onMediaCaptured?.invoke(null)
         }
     }

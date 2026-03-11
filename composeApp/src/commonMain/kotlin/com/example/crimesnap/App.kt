@@ -6,7 +6,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,145 +18,203 @@ import androidx.compose.ui.tooling.preview.Preview
 import kotlinx.coroutines.launch
 
 enum class Screen {
-    Home, History, Report, Profile, About
+    Home, History, Report, Profile, About, ReportDetail, Login
 }
+
+data class CrimeReport(
+    val id: String,
+    val type: String,
+    val location: String,
+    val description: String,
+    val date: String,
+    val photoPath: String? = null,
+    val videoPath: String? = null,
+    val audioPath: String? = null
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun App() {
+    val authManager = remember { getAuthManager() }
+    val authViewModel = remember { AuthViewModel(authManager) }
+    val user by authViewModel.currentUser.collectAsState()
+    
     var currentScreen by remember { mutableStateOf(Screen.Home) }
+    var selectedReport by remember { mutableStateOf<CrimeReport?>(null) }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     
     val reportHistory = remember { 
-        mutableStateListOf(
-            "Theft reported at Central Park on Oct 12, 2023",
-            "Vandalism reported at 5th Ave on Nov 5, 2023",
-            "Suspicious activity reported on Dec 1, 2023"
-        )
+        mutableStateListOf<CrimeReport>()
     }
 
-    // Handle back button navigation
-    BackHandler(enabled = currentScreen != Screen.Home) {
-        if (drawerState.isOpen) {
-            scope.launch { drawerState.close() }
-        } else {
-            currentScreen = Screen.Home
-        }
+    // Update report count in user profile
+    LaunchedEffect(reportHistory.size) {
+        authManager.updateReportsCount(reportHistory.size)
     }
 
-    MaterialTheme {
-        ModalNavigationDrawer(
-            drawerState = drawerState,
-            drawerContent = {
-                ModalDrawerSheet {
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        "CrimeSnap",
-                        modifier = Modifier.padding(16.dp),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    HorizontalDivider()
-                    NavigationDrawerItem(
-                        icon = { Icon(Icons.Default.Dashboard, contentDescription = null) },
-                        label = { Text("Dashboard") },
-                        selected = currentScreen == Screen.Home,
-                        onClick = {
-                            currentScreen = Screen.Home
-                            scope.launch { drawerState.close() }
-                        }
-                    )
-                    NavigationDrawerItem(
-                        icon = { Icon(Icons.Default.Person, contentDescription = null) },
-                        label = { Text("Profile") },
-                        selected = currentScreen == Screen.Profile,
-                        onClick = {
-                            currentScreen = Screen.Profile
-                            scope.launch { drawerState.close() }
-                        }
-                    )
-                    NavigationDrawerItem(
-                        icon = { Icon(Icons.Default.History, contentDescription = null) },
-                        label = { Text("History") },
-                        selected = currentScreen == Screen.History,
-                        onClick = {
-                            currentScreen = Screen.History
-                            scope.launch { drawerState.close() }
-                        }
-                    )
-                    NavigationDrawerItem(
-                        icon = { Icon(Icons.Default.Sos, contentDescription = null) },
-                        label = { Text("SOS Emergency") },
-                        selected = false,
-                        onClick = {
-                            // Instant SOS trigger
-                            scope.launch { drawerState.close() }
-                        }
-                    )
-                    NavigationDrawerItem(
-                        icon = { Icon(Icons.Default.Info, contentDescription = null) },
-                        label = { Text("About App") },
-                        selected = currentScreen == Screen.About,
-                        onClick = {
-                            currentScreen = Screen.About
-                            scope.launch { drawerState.close() }
-                        }
-                    )
-                    NavigationDrawerItem(
-                        icon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                        label = { Text("Settings") },
-                        selected = false,
-                        onClick = {
-                            scope.launch { drawerState.close() }
-                        }
-                    )
-                    Spacer(Modifier.weight(1f))
-                    HorizontalDivider()
-                    Box(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "Version 1.0.0",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    NavigationDrawerItem(
-                        icon = { Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null) },
-                        label = { Text("Logout") },
-                        selected = false,
-                        onClick = {
-                            scope.launch { drawerState.close() }
-                        }
-                    )
-                    Spacer(Modifier.height(12.dp))
+    if (user == null) {
+        LoginScreen(authManager = authManager)
+    } else {
+        // Handle back button navigation
+        BackHandler(enabled = currentScreen != Screen.Home || drawerState.isOpen) {
+            if (drawerState.isOpen) {
+                scope.launch { drawerState.close() }
+            } else {
+                if (currentScreen == Screen.ReportDetail) {
+                    currentScreen = Screen.History
+                } else {
+                    currentScreen = Screen.Home
                 }
             }
-        ) {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = MaterialTheme.colorScheme.background
-            ) {
-                when (currentScreen) {
-                    Screen.Home -> HomeScreen(
-                        onMenuClick = { scope.launch { drawerState.open() } },
-                        onNavigateToHistory = { currentScreen = Screen.History },
-                        onReportCrime = { currentScreen = Screen.Report }
-                    )
-                    Screen.History -> HistoryScreen(
-                        historyItems = reportHistory,
-                        onBack = { currentScreen = Screen.Home }
-                    )
-                    Screen.Report -> ReportScreen(
-                        onBack = { currentScreen = Screen.Home },
-                        onSubmit = { type, location, _ ->
-                            val report = "$type reported at $location on ${getCurrentDate()}"
-                            reportHistory.add(0, report)
-                            currentScreen = Screen.Home
+        }
+
+        MaterialTheme {
+            ModalNavigationDrawer(
+                drawerState = drawerState,
+                drawerContent = {
+                    ModalDrawerSheet {
+                        Spacer(Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Security,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(32.dp)
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                "CrimeSnap",
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
                         }
-                    )
-                    Screen.Profile -> ProfileScreen(onBack = { currentScreen = Screen.Home })
-                    Screen.About -> AboutScreen(onBack = { currentScreen = Screen.Home })
+                        
+                        user?.let {
+                            ListItem(
+                                headlineContent = { Text(it.name ?: "User") },
+                                supportingContent = { Text(it.email ?: "") },
+                                leadingContent = {
+                                    Icon(Icons.Default.AccountCircle, contentDescription = null, modifier = Modifier.size(40.dp))
+                                }
+                            )
+                        }
+                        
+                        HorizontalDivider()
+                        NavigationDrawerItem(
+                            icon = { Icon(Icons.Default.Dashboard, contentDescription = null) },
+                            label = { Text("Dashboard") },
+                            selected = currentScreen == Screen.Home,
+                            onClick = {
+                                currentScreen = Screen.Home
+                                scope.launch { drawerState.close() }
+                            }
+                        )
+                        NavigationDrawerItem(
+                            icon = { Icon(Icons.Default.Person, contentDescription = null) },
+                            label = { Text("Profile") },
+                            selected = currentScreen == Screen.Profile,
+                            onClick = {
+                                currentScreen = Screen.Profile
+                                scope.launch { drawerState.close() }
+                            }
+                        )
+                        NavigationDrawerItem(
+                            icon = { Icon(Icons.Default.History, contentDescription = null) },
+                            label = { Text("History") },
+                            selected = currentScreen == Screen.History,
+                            onClick = {
+                                currentScreen = Screen.History
+                                scope.launch { drawerState.close() }
+                            }
+                        )
+                        NavigationDrawerItem(
+                            icon = { Icon(Icons.Default.Emergency, contentDescription = null) },
+                            label = { Text("SOS Emergency") },
+                            selected = false,
+                            onClick = {
+                                // Instant SOS trigger
+                                scope.launch { drawerState.close() }
+                            }
+                        )
+                        NavigationDrawerItem(
+                            icon = { Icon(Icons.Default.Info, contentDescription = null) },
+                            label = { Text("About App") },
+                            selected = currentScreen == Screen.About,
+                            onClick = {
+                                currentScreen = Screen.About
+                                scope.launch { drawerState.close() }
+                            }
+                        )
+                        NavigationDrawerItem(
+                            icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                            label = { Text("Settings") },
+                            selected = false,
+                            onClick = {
+                                scope.launch { drawerState.close() }
+                            }
+                        )
+                        Spacer(Modifier.weight(1f))
+                        HorizontalDivider()
+                        Box(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "Version 1.0.0",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        NavigationDrawerItem(
+                            icon = { Icon(Icons.Default.ExitToApp, contentDescription = null) },
+                            label = { Text("Logout") },
+                            selected = false,
+                            onClick = {
+                                scope.launch {
+                                    drawerState.close()
+                                    authViewModel.signOut()
+                                }
+                            }
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    }
+                }
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    when (currentScreen) {
+                        Screen.Home -> HomeScreen(
+                            onMenuClick = { scope.launch { drawerState.open() } },
+                            onNavigateToHistory = { currentScreen = Screen.History },
+                            onReportCrime = { currentScreen = Screen.Report }
+                        )
+                        Screen.History -> HistoryScreen(
+                            historyItems = reportHistory,
+                            onBack = { currentScreen = Screen.Home },
+                            onReportClick = { report ->
+                                selectedReport = report
+                                currentScreen = Screen.ReportDetail
+                            }
+                        )
+                        Screen.Report -> ReportScreen(
+                            onBack = { currentScreen = Screen.Home },
+                            onSubmit = { report ->
+                                reportHistory.add(0, report)
+                                currentScreen = Screen.Home
+                            }
+                        )
+                        Screen.Profile -> ProfileScreen(user = user, onBack = { currentScreen = Screen.Home })
+                        Screen.About -> AboutScreen(onBack = { currentScreen = Screen.Home })
+                        Screen.ReportDetail -> ReportDetailScreen(
+                            report = selectedReport,
+                            onBack = { currentScreen = Screen.History }
+                        )
+                        else -> {}
+                    }
                 }
             }
         }
@@ -247,7 +304,7 @@ fun HomeScreen(onMenuClick: () -> Unit, onNavigateToHistory: () -> Unit, onRepor
                     contentColor = MaterialTheme.colorScheme.onErrorContainer
                 )
             ) {
-                Icon(Icons.Default.Sos, contentDescription = null, modifier = Modifier.size(32.dp))
+                Icon(Icons.Default.Emergency, contentDescription = null, modifier = Modifier.size(32.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = "SOS EMERGENCY",
@@ -261,7 +318,7 @@ fun HomeScreen(onMenuClick: () -> Unit, onNavigateToHistory: () -> Unit, onRepor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ReportScreen(onBack: () -> Unit, onSubmit: (String, String, String) -> Unit) {
+fun ReportScreen(onBack: () -> Unit, onSubmit: (CrimeReport) -> Unit) {
     var crimeType by remember { mutableStateOf("") }
     var detectedLocation by remember { mutableStateOf("Detecting location...") }
     var description by remember { mutableStateOf("") }
@@ -466,14 +523,24 @@ fun ReportScreen(onBack: () -> Unit, onSubmit: (String, String, String) -> Unit)
 
             Button(
                 onClick = { 
-                    if (crimeType.isNotEmpty() && detectedLocation.contains("Lat:")) {
-                        onSubmit(crimeType, detectedLocation, description)
+                    if (crimeType.isNotEmpty() && (detectedLocation.contains("Lat:") || detectedLocation == "Location Captured")) {
+                        val report = CrimeReport(
+                            id = (1000..9999).random().toString(),
+                            type = crimeType,
+                            location = detectedLocation,
+                            description = description,
+                            date = getCurrentDate(),
+                            photoPath = photoPath,
+                            videoPath = videoPath,
+                            audioPath = audioPath
+                        )
+                        onSubmit(report)
                     }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
-                enabled = crimeType.isNotEmpty() && detectedLocation.contains("Lat:")
+                enabled = crimeType.isNotEmpty() && (detectedLocation.contains("Lat:") || detectedLocation == "Location Captured" || detectedLocation.length > 15)
             ) {
                 Text("Submit Verified Report", fontSize = 18.sp)
             }
@@ -510,7 +577,7 @@ fun EvidenceButton(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HistoryScreen(historyItems: List<String>, onBack: () -> Unit) {
+fun HistoryScreen(historyItems: List<CrimeReport>, onBack: () -> Unit, onReportClick: (CrimeReport) -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -529,7 +596,20 @@ fun HistoryScreen(historyItems: List<String>, onBack: () -> Unit) {
     ) { padding ->
         if (historyItems.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("No reports found.")
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        Icons.Default.History, 
+                        contentDescription = null, 
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.outline
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        "No crime reported yet",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
             }
         } else {
             LazyColumn(
@@ -542,13 +622,31 @@ fun HistoryScreen(historyItems: List<String>, onBack: () -> Unit) {
                 items(historyItems) { item ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
+                        onClick = { onReportClick(item) },
                         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                     ) {
-                        Text(
-                            text = item,
-                            modifier = Modifier.padding(16.dp),
-                            style = MaterialTheme.typography.bodyLarge
-                        )
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = item.type,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Icon(Icons.Default.ChevronRight, contentDescription = null)
+                            }
+                            Text(
+                                text = "Location: ${item.location}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = "Date: ${item.date}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }
@@ -558,7 +656,118 @@ fun HistoryScreen(historyItems: List<String>, onBack: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileScreen(onBack: () -> Unit) {
+fun ReportDetailScreen(report: CrimeReport?, onBack: () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Incident Details") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        if (report == null) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Text("Report not found.")
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                DetailItem(label = "Crime Type", value = report.type, style = MaterialTheme.typography.headlineSmall)
+                DetailItem(label = "Location", value = report.location)
+                DetailItem(label = "Date", value = report.date)
+                
+                HorizontalDivider()
+                
+                Text(
+                    text = "Description",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = if (report.description.isEmpty()) "No description provided." else report.description,
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                
+                HorizontalDivider()
+                
+                Text(
+                    text = "Evidence Captured (Read-Only)",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    EvidenceStatus(icon = Icons.Default.PhotoCamera, label = "Photo", isAvailable = report.photoPath != null)
+                    EvidenceStatus(icon = Icons.Default.Videocam, label = "Video", isAvailable = report.videoPath != null)
+                    EvidenceStatus(icon = Icons.Default.Mic, label = "Audio", isAvailable = report.audioPath != null)
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                OutlinedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "Evidence is stored securely for investigation purposes.",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DetailItem(label: String, value: String, style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodyLarge) {
+    Column {
+        Text(text = label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        Text(text = value, style = style)
+    }
+}
+
+@Composable
+fun EvidenceStatus(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, isAvailable: Boolean) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = if (isAvailable) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(40.dp)
+        )
+        Text(
+            text = if (isAvailable) "Captured" else "N/A",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (isAvailable) FontWeight.Bold else FontWeight.Normal,
+            color = if (isAvailable) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ProfileScreen(user: User?, onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -585,8 +794,8 @@ fun ProfileScreen(onBack: () -> Unit) {
                 tint = MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.height(16.dp))
-            Text(text = "Guest User", style = MaterialTheme.typography.headlineMedium)
-            Text(text = "guest@example.com", style = MaterialTheme.typography.bodyMedium)
+            Text(text = user?.name ?: "Guest User", style = MaterialTheme.typography.headlineMedium)
+            Text(text = user?.email ?: "Not available", style = MaterialTheme.typography.bodyMedium)
             
             Spacer(modifier = Modifier.height(32.dp))
             
@@ -594,8 +803,9 @@ fun ProfileScreen(onBack: () -> Unit) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(text = "Account Details", fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(text = "Join Date: Oct 2023")
-                    Text(text = "Reports Filed: 3")
+                    Text(text = "User ID: ${user?.id ?: "N/A"}")
+                    Text(text = "Join Date: ${user?.joinDate ?: "Oct 2023"}")
+                    Text(text = "Reports Filed: ${user?.reportsCount ?: 0}")
                 }
             }
         }
@@ -656,40 +866,11 @@ fun AboutScreen(onBack: () -> Unit) {
 }
 
 fun getCurrentDate(): String {
-    return "Recent Date"
+    return "Oct 25, 2023"
 }
 
 @Preview
 @Composable
 fun AppPreview() {
     App()
-}
-
-@Preview(showBackground = true)
-@Composable
-fun HomeScreenPreview() {
-    MaterialTheme {
-        HomeScreen(onMenuClick = {}, onNavigateToHistory = {}, onReportCrime = {})
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun ReportScreenPreview() {
-    MaterialTheme {
-        ReportScreen(onBack = {}, onSubmit = { _, _, _ -> })
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun HistoryScreenPreview() {
-    MaterialTheme {
-        val sampleHistory = listOf(
-            "Theft reported at Central Park on Oct 12, 2023",
-            "Vandalism reported at 5th Ave on Nov 5, 2023",
-            "Suspicious activity reported on Dec 1, 2023"
-        )
-        HistoryScreen(historyItems = sampleHistory, onBack = {})
-    }
 }

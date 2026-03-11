@@ -1,4 +1,3 @@
-import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -6,6 +5,7 @@ plugins {
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
+    id("org.jetbrains.kotlin.native.cocoapods")
 }
 
 kotlin {
@@ -15,11 +15,16 @@ kotlin {
         }
     }
     
-    listOf(
-        iosArm64(),
-        iosSimulatorArm64()
-    ).forEach { iosTarget ->
-        iosTarget.binaries.framework {
+    iosArm64()
+    iosSimulatorArm64()
+
+    cocoapods {
+        version = "1.0"
+        summary = "CrimeSnap Compose Multiplatform App"
+        homepage = "https://github.com/example/crimesnap"
+        ios.deploymentTarget = "14.1"
+        pod("GoogleSignIn")
+        framework {
             baseName = "ComposeApp"
             isStatic = true
         }
@@ -30,6 +35,8 @@ kotlin {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.androidx.activity.compose)
             implementation("com.google.android.gms:play-services-location:21.3.0")
+            implementation(libs.google.auth)
+            implementation(libs.kotlinx.coroutines.play.services)
         }
         commonMain.dependencies {
             implementation(libs.compose.runtime)
@@ -78,4 +85,3 @@ android {
 dependencies {
     debugImplementation(libs.compose.uiTooling)
 }
-
