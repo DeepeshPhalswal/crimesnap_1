@@ -1,5 +1,6 @@
 package com.example.crimesnap
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -518,6 +519,27 @@ fun ReportScreen(onBack: () -> Unit, onSubmit: (CrimeReport) -> Unit) {
                     }
                 )
             }
+            
+            // Uploaded Files List
+            if (photoPath != null || videoPath != null || audioPath != null) {
+                Text(
+                    text = "Uploaded Evidence Files:",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.medium)
+                        .padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    FileItem(platform.getFileInfo(photoPath))
+                    FileItem(platform.getFileInfo(videoPath))
+                    FileItem(platform.getFileInfo(audioPath))
+                }
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -544,6 +566,42 @@ fun ReportScreen(onBack: () -> Unit, onSubmit: (CrimeReport) -> Unit) {
             ) {
                 Text("Submit Verified Report", fontSize = 18.sp)
             }
+        }
+    }
+}
+
+@Composable
+fun FileItem(fileInfo: FileInfo?) {
+    fileInfo?.let {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = when(it.type) {
+                        "Photo" -> Icons.Default.Image
+                        "Video" -> Icons.Default.VideoFile
+                        else -> Icons.Default.AudioFile
+                    },
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    Text(text = it.type, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Text(text = it.name, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                }
+            }
+            Text(
+                text = it.sizeFormatted,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary
+            )
         }
     }
 }
@@ -657,6 +715,7 @@ fun HistoryScreen(historyItems: List<CrimeReport>, onBack: () -> Unit, onReportC
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReportDetailScreen(report: CrimeReport?, onBack: () -> Unit) {
+    val platform = getPlatform()
     Scaffold(
         topBar = {
             TopAppBar(
@@ -713,6 +772,21 @@ fun ReportDetailScreen(report: CrimeReport?, onBack: () -> Unit) {
                     EvidenceStatus(icon = Icons.Default.PhotoCamera, label = "Photo", isAvailable = report.photoPath != null)
                     EvidenceStatus(icon = Icons.Default.Videocam, label = "Video", isAvailable = report.videoPath != null)
                     EvidenceStatus(icon = Icons.Default.Mic, label = "Audio", isAvailable = report.audioPath != null)
+                }
+                
+                // Detailed Evidence File Info
+                if (report.photoPath != null || report.videoPath != null || report.audioPath != null) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.medium)
+                            .padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        FileItem(platform.getFileInfo(report.photoPath))
+                        FileItem(platform.getFileInfo(report.videoPath))
+                        FileItem(platform.getFileInfo(report.audioPath))
+                    }
                 }
                 
                 Spacer(modifier = Modifier.height(16.dp))

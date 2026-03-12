@@ -1,6 +1,24 @@
 package com.example.crimesnap
 
 import androidx.compose.runtime.Composable
+import kotlin.math.roundToLong
+
+data class FileInfo(
+    val name: String,
+    val sizeInBytes: Long,
+    val type: String
+) {
+    val sizeFormatted: String
+        get() {
+            val kb = sizeInBytes / 1024.0
+            val mb = kb / 1024.0
+            return when {
+                mb >= 1.0 -> "${(mb * 100).roundToLong() / 100.0} MB"
+                kb >= 1.0 -> "${(kb * 100).roundToLong() / 100.0} KB"
+                else -> "$sizeInBytes Bytes"
+            }
+        }
+}
 
 interface Platform {
     val name: String
@@ -20,6 +38,8 @@ interface Platform {
     fun capturePhoto(onResult: (String?) -> Unit)
     fun captureVideo(onResult: (String?) -> Unit)
     fun recordAudio(onResult: (String?) -> Unit)
+    
+    fun getFileInfo(path: String?): FileInfo?
 }
 
 @Composable
