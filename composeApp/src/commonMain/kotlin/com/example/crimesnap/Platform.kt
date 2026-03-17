@@ -45,9 +45,12 @@ interface Platform {
     fun analyzeImage(imagePath: String, onResult: (DetectionResult?) -> Unit)
     suspend fun uploadFile(localPath: String, remotePath: String): String?
     suspend fun saveReport(report: CrimeReport): Boolean
+    suspend fun signInWithGoogle(): Result<User>
+    fun openUrl(url: String)
     
     // Utils
     fun getTimestamp(): Long
+    fun getCurrentDate(): String
 }
 
 @Composable

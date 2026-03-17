@@ -2,7 +2,7 @@
   "project_info": {
     "project_number": "705077492406",
     "project_id": "crimesnap-bd984",
-    "storage_bucket": "crimesnap-bd984-bucket"
+    "storage_bucket": "crimesnap-bd984.firebasestorage.app"
   },
   "client": [
     {

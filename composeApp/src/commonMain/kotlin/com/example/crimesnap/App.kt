@@ -5,6 +5,7 @@ package com.example.crimesnap
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -52,9 +53,11 @@ data class CrimeReport(
     val timestamp: Long,
     val photoPath: String? = null,
     val imageUrl: String? = null,
-    val detectionResult: DetectionResult? = null,
     val videoPath: String? = null,
+    val videoUrl: String? = null,
     val audioPath: String? = null,
+    val audioUrl: String? = null,
+    val detectionResult: DetectionResult? = null,
     val latitude: Double = 0.0,
     val longitude: Double = 0.0
 )
@@ -71,11 +74,14 @@ fun App() {
     
     val reportHistory = remember { mutableStateListOf<CrimeReport>() }
     var isLoadingHistory by remember { mutableStateOf(false) }
+    val platform = getPlatform()
 
     // Auto-navigate based on Auth State
     LaunchedEffect(user) {
         if (user != null) {
-            currentScreen = Screen.Home
+            if (currentScreen == Screen.Login) {
+                currentScreen = Screen.Home
+            }
         } else {
             currentScreen = Screen.Login
         }
@@ -100,13 +106,15 @@ fun App() {
                     try {
                         val report = CrimeReport(
                             id = doc.id,
-                            userId = doc.get("userId"),
-                            type = doc.get("type"),
-                            location = doc.get("location"),
-                            description = doc.get("description"),
+                            userId = doc.get<String?>("userId") ?: "",
+                            type = doc.get<String?>("type") ?: "Unknown",
+                            location = doc.get<String?>("location") ?: "Unknown",
+                            description = doc.get<String?>("description") ?: "",
                             date = doc.get<String?>("date") ?: "Unknown Date",
-                            timestamp = doc.get("timestamp"),
-                            imageUrl = doc.get("imageUrl"),
+                            timestamp = doc.get<Long?>("timestamp") ?: 0L,
+                            imageUrl = doc.get<String?>("imageUrl"),
+                            videoUrl = doc.get<String?>("videoUrl"),
+                            audioUrl = doc.get<String?>("audioUrl"),
                             latitude = doc.get<Double?>("latitude") ?: 0.0,
                             longitude = doc.get<Double?>("longitude") ?: 0.0
                         )
@@ -132,6 +140,8 @@ fun App() {
             } else {
                 if (currentScreen == Screen.ReportDetail) {
                     currentScreen = Screen.History
+                } else if (currentScreen == Screen.Report) {
+                    currentScreen = Screen.Home
                 } else {
                     currentScreen = Screen.Home
                 }
@@ -273,7 +283,8 @@ fun App() {
                             user = user,
                             onBack = { currentScreen = Screen.Home },
                             onSubmit = { report ->
-                                currentScreen = Screen.Home
+                                // After submission, go to history to see the result
+                                currentScreen = Screen.History
                             }
                         )
                         Screen.Profile -> ProfileScreen(user = user, onBack = { currentScreen = Screen.Home })
@@ -403,6 +414,7 @@ fun ReportScreen(user: User?, onBack: () -> Unit, onSubmit: (CrimeReport) -> Uni
     var detectionResult by remember { mutableStateOf<DetectionResult?>(null) }
     var isAnalyzing by remember { mutableStateOf(false) }
     var isUploading by remember { mutableStateOf(false) }
+    var uploadStatus by remember { mutableStateOf("") }
 
     val platform = getPlatform()
     val scope = rememberCoroutineScope()
@@ -660,56 +672,69 @@ fun ReportScreen(user: User?, onBack: () -> Unit, onSubmit: (CrimeReport) -> Uni
             Spacer(modifier = Modifier.height(16.dp))
 
             if (isUploading) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                Text("Saving report and evidence...", modifier = Modifier.align(Alignment.CenterHorizontally))
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(8.dp))
+                    Text(uploadStatus, style = MaterialTheme.typography.bodyMedium)
+                }
             } else {
                 Button(
                     onClick = {
                         if (crimeType.isNotEmpty() && (detectedLocation.contains("Lat:") || detectedLocation == "Location Captured")) {
                             isUploading = true
+                            uploadStatus = "Preparing upload..."
                             scope.launch {
                                 try {
                                     val timestamp = System.currentTimeMillis()
                                     var imageUrl: String? = null
+                                    var videoUrl: String? = null
+                                    var audioUrl: String? = null
 
-                                    photoPath?.let { path ->
-                                        imageUrl = platform.uploadFile(path, "reports/$timestamp/image.jpg")
+                                    if (photoPath != null) {
+                                        uploadStatus = "Uploading photo to Firebase Storage..."
+                                        imageUrl = platform.uploadFile(photoPath!!, "reports/$timestamp/image.jpg")
+                                    }
+                                    
+                                    if (videoPath != null) {
+                                        uploadStatus = "Uploading video to Firebase Storage..."
+                                        videoUrl = platform.uploadFile(videoPath!!, "reports/$timestamp/video.mp4")
+                                    }
+                                    
+                                    if (audioPath != null) {
+                                        uploadStatus = "Uploading audio to Firebase Storage..."
+                                        audioUrl = platform.uploadFile(audioPath!!, "reports/$timestamp/audio.m4a")
                                     }
 
-                                    val reportMap = mapOf(
-                                        "userId" to (user?.id ?: "anonymous"),
-                                        "type" to crimeType,
-                                        "location" to detectedLocation,
-                                        "description" to description,
-                                        "timestamp" to timestamp,
-                                        "imageUrl" to imageUrl,
-                                        "latitude" to currentLatitude,
-                                        "longitude" to currentLongitude,
-                                        "date" to getCurrentDate()
-                                    )
-
-                                    Firebase.firestore.collection("reports").add(reportMap)
-
+                                    uploadStatus = "Finalizing report in Firestore..."
                                     val report = CrimeReport(
                                         id = timestamp.toString(),
                                         userId = user?.id ?: "anonymous",
                                         type = crimeType,
                                         location = detectedLocation,
                                         description = description,
-                                        date = getCurrentDate(),
+                                        date = platform.getCurrentDate(),
                                         timestamp = timestamp,
                                         photoPath = photoPath,
                                         imageUrl = imageUrl,
-                                        detectionResult = detectionResult,
                                         videoPath = videoPath,
+                                        videoUrl = videoUrl,
                                         audioPath = audioPath,
+                                        audioUrl = audioUrl,
+                                        detectionResult = detectionResult,
                                         latitude = currentLatitude,
                                         longitude = currentLongitude
                                     )
 
+                                    // Use platform to save report for consistency
+                                    platform.saveReport(report)
+
+                                    uploadStatus = "Upload complete!"
+                                    delay(500)
                                     isUploading = false
                                     onSubmit(report)
                                 } catch (e: Exception) {
+                                    uploadStatus = "Upload failed: ${e.message}"
+                                    delay(2000)
                                     isUploading = false
                                 }
                             }
@@ -728,12 +753,14 @@ fun ReportScreen(user: User?, onBack: () -> Unit, onSubmit: (CrimeReport) -> Uni
 }
 
 @Composable
-fun FileItem(fileInfo: FileInfo?, forcedType: String) {
+fun FileItem(fileInfo: FileInfo?, forcedType: String, onClick: (() -> Unit)? = null) {
     fileInfo?.let {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.small)
+                .clip(MaterialTheme.shapes.small)
+                .background(MaterialTheme.colorScheme.surface)
+                .clickable(enabled = onClick != null) { onClick?.invoke() }
                 .padding(8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
@@ -764,11 +791,15 @@ fun FileItem(fileInfo: FileInfo?, forcedType: String) {
                     )
                 }
             }
-            Badge(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-            ) {
-                Text(it.sizeFormatted, modifier = Modifier.padding(4.dp))
+            if (onClick != null) {
+                Icon(Icons.Default.OpenInNew, contentDescription = "Open", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+            } else {
+                Badge(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                ) {
+                    Text(it.sizeFormatted, modifier = Modifier.padding(4.dp))
+                }
             }
         }
     }
@@ -875,11 +906,23 @@ fun HistoryScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1
                             )
-                            Text(
-                                text = "Date: ${item.date}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Date: ${item.date}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (item.imageUrl != null || item.videoUrl != null || item.audioUrl != null) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Attachment, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
+                                        Text(" Evidence", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -956,7 +999,7 @@ fun ReportDetailScreen(report: CrimeReport?, onBack: () -> Unit) {
                 HorizontalDivider()
 
                 Text(
-                    text = "Evidence Captured (Read-Only View)",
+                    text = "Evidence (Tap to View)",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
@@ -967,11 +1010,11 @@ fun ReportDetailScreen(report: CrimeReport?, onBack: () -> Unit) {
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
                     EvidenceStatus(icon = Icons.Default.PhotoCamera, label = "Photo", isAvailable = report.imageUrl != null || report.photoPath != null)
-                    EvidenceStatus(icon = Icons.Default.Videocam, label = "Video", isAvailable = report.videoPath != null)
-                    EvidenceStatus(icon = Icons.Default.Mic, label = "Audio", isAvailable = report.audioPath != null)
+                    EvidenceStatus(icon = Icons.Default.Videocam, label = "Video", isAvailable = report.videoUrl != null || report.videoPath != null)
+                    EvidenceStatus(icon = Icons.Default.Mic, label = "Audio", isAvailable = report.audioUrl != null || report.audioPath != null)
                 }
 
-                if (report.imageUrl != null || report.photoPath != null || report.videoPath != null || report.audioPath != null) {
+                if (report.imageUrl != null || report.photoPath != null || report.videoUrl != null || report.videoPath != null || report.audioUrl != null || report.audioPath != null) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -980,10 +1023,26 @@ fun ReportDetailScreen(report: CrimeReport?, onBack: () -> Unit) {
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         if (report.imageUrl != null || report.photoPath != null) {
-                            FileItem(platform.getFileInfo(report.imageUrl ?: report.photoPath), "IMAGE")
+                            FileItem(
+                                platform.getFileInfo(report.imageUrl ?: report.photoPath), 
+                                "IMAGE",
+                                onClick = { (report.imageUrl ?: report.photoPath)?.let { platform.openUrl(it) } }
+                            )
                         }
-                        if (report.videoPath != null) FileItem(platform.getFileInfo(report.videoPath), "VIDEO")
-                        if (report.audioPath != null) FileItem(platform.getFileInfo(report.audioPath), "AUDIO")
+                        if (report.videoUrl != null || report.videoPath != null) {
+                            FileItem(
+                                platform.getFileInfo(report.videoUrl ?: report.videoPath), 
+                                "VIDEO",
+                                onClick = { (report.videoUrl ?: report.videoPath)?.let { platform.openUrl(it) } }
+                            )
+                        }
+                        if (report.audioUrl != null || report.audioPath != null) {
+                            FileItem(
+                                platform.getFileInfo(report.audioUrl ?: report.audioPath), 
+                                "AUDIO",
+                                onClick = { (report.audioUrl ?: report.audioPath)?.let { platform.openUrl(it) } }
+                            )
+                        }
                     }
                 }
 
@@ -1000,7 +1059,7 @@ fun ReportDetailScreen(report: CrimeReport?, onBack: () -> Unit) {
                         Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = "This evidence has been securely uploaded and cannot be modified.",
+                            text = "This evidence has been securely uploaded to Firebase and cannot be modified.",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1134,10 +1193,6 @@ fun AboutScreen(onBack: () -> Unit) {
             )
         }
     }
-}
-
-fun getCurrentDate(): String {
-    return "Oct 25, 2023"
 }
 
 @Preview

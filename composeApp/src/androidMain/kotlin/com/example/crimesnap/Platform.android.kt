@@ -7,7 +7,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentSender
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.location.Geocoder
 import android.location.LocationManager
@@ -16,36 +15,53 @@ import android.os.Build
 import android.provider.MediaStore
 import android.provider.Settings
 import android.webkit.MimeTypeMap
-import androidx.activity.compose.BackHandler
+import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.credentials.CredentialManager
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.GetCredentialResponse
 import com.google.android.gms.common.api.ResolvableApiException
 import com.google.android.gms.location.*
 import com.google.android.gms.tasks.CancellationTokenSource
-import dev.gitlive.firebase.Firebase
-import dev.gitlive.firebase.firestore.firestore
-import dev.gitlive.firebase.storage.storage
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.google.firebase.Firebase
+import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.auth.auth
+import com.google.firebase.firestore.firestore
+import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.storageMetadata
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.support.common.FileUtil
 import org.tensorflow.lite.support.image.ImageProcessor
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.support.image.ops.ResizeOp
+import android.util.Log
 
 class AndroidPlatform : Platform {
     override val name: String = "Android ${Build.VERSION.SDK_INT}"
     
-    // Explicitly use the storage bucket provided
-    private val storageBucket = "gs://crimesnap-bd984.firebasestorage.app"
+    // Explicit bucket from your screenshot to avoid any configuration issues
+    private val STORAGE_BUCKET_URL = "gs://crimesnap-bd984.firebasestorage.app"
+    
+    private val storage by lazy { 
+        FirebaseStorage.getInstance(STORAGE_BUCKET_URL)
+    }
+    
     private val firestore by lazy { Firebase.firestore }
-    private val storage by lazy { Firebase.storage(storageBucket) }
+    private val auth by lazy { Firebase.auth }
 
     companion object {
         @SuppressLint("StaticFieldLeak")
@@ -54,6 +70,149 @@ class AndroidPlatform : Platform {
         
         var onMediaCaptured: ((String?) -> Unit)? = null
         var tempMediaUri: Uri? = null
+    }
+
+    override suspend fun signInWithGoogle(): Result<User> {
+        return withContext(Dispatchers.IO) {
+            val activity = currentActivity ?: return@withContext Result.failure(Exception("Activity not found"))
+            val credentialManager = CredentialManager.create(activity)
+
+            val googleIdOption = GetGoogleIdOption.Builder()
+                .setFilterByAuthorizedAccounts(false)
+                .setServerClientId("705077492406-d5tj48pocttsdmabf7bsmeqo5eb08lns.apps.googleusercontent.com")
+                .setAutoSelectEnabled(true)
+                .build()
+
+            val request = GetCredentialRequest.Builder()
+                .addCredentialOption(googleIdOption)
+                .build()
+
+            try {
+                val response: GetCredentialResponse = withContext(Dispatchers.Main) {
+                    credentialManager.getCredential(activity, request)
+                }
+                val receivedCredential = response.credential
+                
+                if (receivedCredential is androidx.credentials.CustomCredential && 
+                    receivedCredential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+                    
+                    val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(receivedCredential.data)
+                    val idToken = googleIdTokenCredential.idToken
+                    
+                    val firebaseCredential = GoogleAuthProvider.getCredential(idToken, null)
+                    
+                    val authResult = auth.signInWithCredential(firebaseCredential).await()
+                    val user = authResult.user?.let {
+                        User(
+                            id = it.uid,
+                            name = it.displayName,
+                            email = it.email,
+                            photoUrl = it.photoUrl?.toString()
+                        )
+                    } ?: throw Exception("Sign in failed: No user returned")
+                    
+                    Result.success(user)
+                } else {
+                    Result.failure(Exception("Unexpected credential type: ${receivedCredential.type}"))
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    override suspend fun uploadFile(localPath: String, remotePath: String): String? {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d("CrimeSnap", "Upload requested for: $localPath")
+                val uri = Uri.parse(localPath)
+                
+                // Open stream to check accessibility
+                val context = appContext ?: throw Exception("Context is null")
+                val inputStream = context.contentResolver.openInputStream(uri) 
+                    ?: throw Exception("Could not open input stream for $localPath")
+                
+                val storageRef = storage.reference.child(remotePath)
+                
+                // Get MIME type
+                val extension = MimeTypeMap.getFileExtensionFromUrl(localPath)
+                val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: when {
+                    remotePath.endsWith(".jpg") -> "image/jpeg"
+                    remotePath.endsWith(".mp4") -> "video/mp4"
+                    remotePath.endsWith(".m4a") -> "audio/mp4"
+                    else -> "application/octet-stream"
+                }
+                
+                val metadata = storageMetadata {
+                    contentType = mimeType
+                }
+
+                Log.d("CrimeSnap", "Uploading to $STORAGE_BUCKET_URL/$remotePath")
+                
+                // Use putStream to avoid URI permission issues in background
+                val uploadTask = storageRef.putStream(inputStream, metadata)
+                
+                // Add listener to log progress
+                uploadTask.addOnProgressListener { snapshot ->
+                    val progress = (100.0 * snapshot.bytesTransferred / snapshot.totalByteCount)
+                    Log.d("CrimeSnap", "Upload is $progress% done")
+                }
+
+                val snapshot = uploadTask.await()
+                inputStream.close()
+                
+                val downloadUrl = storageRef.downloadUrl.await().toString()
+                Log.d("CrimeSnap", "Upload Success! Public URL: $downloadUrl")
+                downloadUrl
+            } catch (e: Exception) {
+                Log.e("CrimeSnap", "UPLOAD ERROR: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(appContext, "Upload failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+                null
+            }
+        }
+    }
+
+    override suspend fun saveReport(report: CrimeReport): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val reportMap = hashMapOf(
+                    "userId" to report.userId,
+                    "type" to report.type,
+                    "location" to report.location,
+                    "description" to report.description,
+                    "timestamp" to report.timestamp,
+                    "imageUrl" to report.imageUrl,
+                    "videoUrl" to report.videoUrl,
+                    "audioUrl" to report.audioUrl,
+                    "latitude" to report.latitude,
+                    "longitude" to report.longitude,
+                    "date" to report.date
+                )
+                
+                firestore.collection("reports").add(reportMap).await()
+                Log.d("CrimeSnap", "Firestore report saved")
+                true
+            } catch (e: Exception) {
+                Log.e("CrimeSnap", "Firestore error: ${e.message}", e)
+                false
+            }
+        }
+    }
+
+    override fun openUrl(url: String) {
+        val activity = currentActivity ?: return
+        try {
+            val uri = Uri.parse(url)
+            val intent = Intent(Intent.ACTION_VIEW, uri)
+            if (url.startsWith("content://")) {
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            activity.startActivity(intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     override fun isLocationPermissionGranted(): Boolean {
@@ -267,6 +426,10 @@ class AndroidPlatform : Platform {
         if (path == null) return null
         val context = appContext ?: return null
         return try {
+            if (path.startsWith("http")) {
+                val fileName = path.substringAfterLast("/").substringBefore("?").replace("%2F", "/")
+                return FileInfo(fileName.substringAfterLast("/"), 0, "Cloud")
+            }
             val file = File(path)
             if (file.exists() && file.isFile) {
                 val type = when {
@@ -346,48 +509,13 @@ class AndroidPlatform : Platform {
         }
     }
 
-    override suspend fun uploadFile(localPath: String, remotePath: String): String? {
-        return withContext(Dispatchers.IO) {
-            try {
-                val storageRef = storage.reference.child(remotePath)
-                val file = File(localPath)
-                if (!file.exists()) return@withContext null
-                
-                // Using dev.gitlive:firebase-storage suspend functions
-                storageRef.putFile(dev.gitlive.firebase.storage.File(Uri.fromFile(file)))
-                storageRef.getDownloadUrl()
-            } catch (e: Exception) {
-                println("Storage Error: ${e.message}")
-                null
-            }
-        }
-    }
-
-    override suspend fun saveReport(report: CrimeReport): Boolean {
-        return withContext(Dispatchers.IO) {
-            try {
-                val reportMap = mapOf(
-                    "userId" to report.userId,
-                    "type" to report.type,
-                    "location" to report.location,
-                    "description" to report.description,
-                    "timestamp" to report.timestamp,
-                    "imageUrl" to report.imageUrl,
-                    "latitude" to report.latitude,
-                    "longitude" to report.longitude,
-                    "date" to report.date
-                )
-                firestore.collection("reports").add(reportMap)
-                true
-            } catch (e: Exception) {
-                println("Firestore Error: ${e.message}")
-                false
-            }
-        }
-    }
-
     override fun getTimestamp(): Long {
         return System.currentTimeMillis()
+    }
+
+    override fun getCurrentDate(): String {
+        val sdf = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+        return sdf.format(Date())
     }
 }
 

@@ -30,6 +30,8 @@ class IOSPlatform: Platform {
     override fun analyzeImage(imagePath: String, onResult: (DetectionResult?) -> Unit) {}
     override suspend fun uploadFile(localPath: String, remotePath: String): String? = null
     override suspend fun saveReport(report: CrimeReport): Boolean = true
+    override suspend fun signInWithGoogle(): Result<User> = Result.failure(Exception("Not implemented"))
+    override fun getTimestamp(): Long = 0
 }
 
 @Composable
