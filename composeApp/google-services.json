@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "705077492406",
+    "project_id": "crimesnap-bd984",
+    "storage_bucket": "crimesnap-bd984-bucket"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:705077492406:android:1019e099ccbff9b077c417",
+        "android_client_info": {
+          "package_name": "com.example.crimesnap"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "705077492406-hid892ljjun4f9ktp9lt2cqu6pk6v215.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.crimesnap",
+            "certificate_hash": "1fc0213bd57ea838a282b04fb76c6cc7b71ceef5"
+          }
+        },
+        {
+          "client_id": "705077492406-d5tj48pocttsdmabf7bsmeqo5eb08lns.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAW2wU63_bJMcw08YSvDWRvLjKm5rExbJY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "705077492406-d5tj48pocttsdmabf7bsmeqo5eb08lns.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -6,12 +6,13 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     id("org.jetbrains.kotlin.native.cocoapods")
+    alias(libs.plugins.googleServices)
 }
 
 kotlin {
     androidTarget {
         compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_11)
+            jvmTarget.set(JvmTarget.JVM_17)
         }
     }
     
@@ -24,6 +25,7 @@ kotlin {
         homepage = "https://github.com/example/crimesnap"
         ios.deploymentTarget = "14.1"
         pod("GoogleSignIn")
+        pod("FirebaseAuth")
         framework {
             baseName = "ComposeApp"
             isStatic = true
@@ -37,6 +39,29 @@ kotlin {
             implementation("com.google.android.gms:play-services-location:21.3.0")
             implementation(libs.google.auth)
             implementation(libs.kotlinx.coroutines.play.services)
+            
+            // CameraX
+            implementation(libs.camera.core)
+            implementation(libs.camera.camera2)
+            implementation(libs.camera.lifecycle)
+            implementation(libs.camera.view)
+            
+            // TensorFlow Lite
+            implementation(libs.tensorflow.lite)
+            implementation(libs.tensorflow.lite.gpu)
+            implementation(libs.tensorflow.lite.support)
+            
+            // Firebase (Android Native)
+            implementation(project.dependencies.platform(libs.firebase.bom))
+            implementation(libs.firebase.auth)
+            implementation(libs.firebase.firestore)
+            implementation(libs.firebase.storage)
+            implementation(libs.firebase.analytics)
+
+            // Credentials
+            implementation(libs.androidx.credentials)
+            implementation(libs.androidx.credentials.auth)
+            implementation(libs.googleid)
         }
         commonMain.dependencies {
             implementation(libs.compose.runtime)
@@ -48,6 +73,11 @@ kotlin {
             implementation(libs.androidx.lifecycle.viewmodelCompose)
             implementation(libs.androidx.lifecycle.runtimeCompose)
             implementation(libs.compose.materialIconsExtended)
+            
+            // GitLive Firebase for Multiplatform
+            implementation(libs.gitlive.firebase.auth)
+            implementation(libs.gitlive.firebase.firestore)
+            implementation(libs.gitlive.firebase.storage)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
@@ -77,8 +107,11 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    buildFeatures {
+        mlModelBinding = true
     }
 }
 

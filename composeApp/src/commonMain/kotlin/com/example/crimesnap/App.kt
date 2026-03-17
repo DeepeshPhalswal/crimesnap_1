@@ -1,10 +1,15 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package com.example.crimesnap
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -12,52 +17,115 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.tooling.preview.Preview
+import dev.gitlive.firebase.Firebase
+import dev.gitlive.firebase.auth.auth
+import dev.gitlive.firebase.firestore.Direction
+import dev.gitlive.firebase.firestore.firestore
+import dev.gitlive.firebase.firestore.where
+import dev.gitlive.firebase.storage.storage
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 
 enum class Screen {
-    Home, History, Report, Profile, About, ReportDetail, Login
+    Login, Home, History, Report, Profile, About, ReportDetail
 }
+
+data class DetectionResult(
+    val label: String,
+    val confidence: Float
+)
 
 data class CrimeReport(
     val id: String,
+    val userId: String,
     val type: String,
     val location: String,
     val description: String,
     val date: String,
+    val timestamp: Long,
     val photoPath: String? = null,
+    val imageUrl: String? = null,
+    val detectionResult: DetectionResult? = null,
     val videoPath: String? = null,
-    val audioPath: String? = null
+    val audioPath: String? = null,
+    val latitude: Double = 0.0,
+    val longitude: Double = 0.0
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun App() {
     val authManager = remember { getAuthManager() }
-    val authViewModel = remember { AuthViewModel(authManager) }
-    val user by authViewModel.currentUser.collectAsState()
+    val user by authManager.currentUser.collectAsState()
     
-    var currentScreen by remember { mutableStateOf(Screen.Home) }
+    var currentScreen by remember { mutableStateOf(Screen.Login) }
     var selectedReport by remember { mutableStateOf<CrimeReport?>(null) }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     
-    val reportHistory = remember { 
-        mutableStateListOf<CrimeReport>()
+    val reportHistory = remember { mutableStateListOf<CrimeReport>() }
+    var isLoadingHistory by remember { mutableStateOf(false) }
+
+    // Auto-navigate based on Auth State
+    LaunchedEffect(user) {
+        if (user != null) {
+            currentScreen = Screen.Home
+        } else {
+            currentScreen = Screen.Login
+        }
     }
 
-    // Update report count in user profile
-    LaunchedEffect(reportHistory.size) {
-        authManager.updateReportsCount(reportHistory.size)
+    // Fetch reports from Firestore when History screen is shown
+    LaunchedEffect(currentScreen, user) {
+        if (currentScreen == Screen.History && user != null) {
+            isLoadingHistory = true
+            try {
+                // Fetch reports for the current user
+                val reports = Firebase.firestore
+                    .collection("reports")
+                    .where("userId", equalTo = user!!.id)
+                    .get()
+
+                reportHistory.clear()
+                // Sort manually if orderBy is problematic with current indices
+                val sortedDocs = reports.documents.sortedByDescending { it.get<Long>("timestamp") }
+
+                sortedDocs.forEach { doc ->
+                    try {
+                        val report = CrimeReport(
+                            id = doc.id,
+                            userId = doc.get("userId"),
+                            type = doc.get("type"),
+                            location = doc.get("location"),
+                            description = doc.get("description"),
+                            date = doc.get<String?>("date") ?: "Unknown Date",
+                            timestamp = doc.get("timestamp"),
+                            imageUrl = doc.get("imageUrl"),
+                            latitude = doc.get<Double?>("latitude") ?: 0.0,
+                            longitude = doc.get<Double?>("longitude") ?: 0.0
+                        )
+                        reportHistory.add(report)
+                    } catch (e: Exception) {
+                        println("Error parsing report: ${e.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                println("Error fetching history: ${e.message}")
+            } finally {
+                isLoadingHistory = false
+            }
+        }
     }
 
-    if (user == null) {
+    if (user == null || currentScreen == Screen.Login) {
         LoginScreen(authManager = authManager)
     } else {
-        // Handle back button navigation
         BackHandler(enabled = currentScreen != Screen.Home || drawerState.isOpen) {
             if (drawerState.isOpen) {
                 scope.launch { drawerState.close() }
@@ -138,7 +206,6 @@ fun App() {
                             label = { Text("SOS Emergency") },
                             selected = false,
                             onClick = {
-                                // Instant SOS trigger
                                 scope.launch { drawerState.close() }
                             }
                         )
@@ -175,7 +242,7 @@ fun App() {
                             onClick = {
                                 scope.launch {
                                     drawerState.close()
-                                    authViewModel.signOut()
+                                    authManager.signOut()
                                 }
                             }
                         )
@@ -195,6 +262,7 @@ fun App() {
                         )
                         Screen.History -> HistoryScreen(
                             historyItems = reportHistory,
+                            isLoading = isLoadingHistory,
                             onBack = { currentScreen = Screen.Home },
                             onReportClick = { report ->
                                 selectedReport = report
@@ -202,9 +270,9 @@ fun App() {
                             }
                         )
                         Screen.Report -> ReportScreen(
+                            user = user,
                             onBack = { currentScreen = Screen.Home },
                             onSubmit = { report ->
-                                reportHistory.add(0, report)
                                 currentScreen = Screen.Home
                             }
                         )
@@ -222,7 +290,6 @@ fun App() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(onMenuClick: () -> Unit, onNavigateToHistory: () -> Unit, onReportCrime: () -> Unit) {
     Scaffold(
@@ -255,7 +322,7 @@ fun HomeScreen(onMenuClick: () -> Unit, onNavigateToHistory: () -> Unit, onRepor
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
             )
-            
+
             Spacer(modifier = Modifier.height(48.dp))
 
             Button(
@@ -275,9 +342,9 @@ fun HomeScreen(onMenuClick: () -> Unit, onNavigateToHistory: () -> Unit, onRepor
                     color = MaterialTheme.colorScheme.onError
                 )
             }
-            
+
             Spacer(modifier = Modifier.height(24.dp))
-            
+
             OutlinedButton(
                 onClick = onNavigateToHistory,
                 modifier = Modifier
@@ -317,30 +384,43 @@ fun HomeScreen(onMenuClick: () -> Unit, onNavigateToHistory: () -> Unit, onRepor
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ReportScreen(onBack: () -> Unit, onSubmit: (CrimeReport) -> Unit) {
+fun ReportScreen(user: User?, onBack: () -> Unit, onSubmit: (CrimeReport) -> Unit) {
     var crimeType by remember { mutableStateOf("") }
     var detectedLocation by remember { mutableStateOf("Detecting location...") }
     var description by remember { mutableStateOf("") }
+    var currentLatitude by remember { mutableStateOf(0.0) }
+    var currentLongitude by remember { mutableStateOf(0.0) }
     
     var showPermissionDialog by remember { mutableStateOf(false) }
     var showGpsDialog by remember { mutableStateOf(false) }
     var showCameraPermissionDialog by remember { mutableStateOf(false) }
     var showAudioPermissionDialog by remember { mutableStateOf(false) }
-    
+
     var photoPath by remember { mutableStateOf<String?>(null) }
     var videoPath by remember { mutableStateOf<String?>(null) }
     var audioPath by remember { mutableStateOf<String?>(null) }
-    
+    var detectionResult by remember { mutableStateOf<DetectionResult?>(null) }
+    var isAnalyzing by remember { mutableStateOf(false) }
+    var isUploading by remember { mutableStateOf(false) }
+
     val platform = getPlatform()
+    val scope = rememberCoroutineScope()
 
     val refreshLocation = {
         platform.getCurrentLocation { result ->
             when (result) {
                 "PERMISSION_REQUIRED" -> showPermissionDialog = true
                 "GPS_DISABLED" -> showGpsDialog = true
-                else -> detectedLocation = result
+                else -> {
+                    detectedLocation = result
+                    if (result.contains("Lat:")) {
+                        val lat = result.substringAfter("Lat: ").substringBefore(",").toDoubleOrNull() ?: 0.0
+                        val lon = result.substringAfter("Lon: ").substringBefore("\n").toDoubleOrNull() ?: 0.0
+                        currentLatitude = lat
+                        currentLongitude = lon
+                    }
+                }
             }
         }
     }
@@ -355,7 +435,7 @@ fun ReportScreen(onBack: () -> Unit, onSubmit: (CrimeReport) -> Unit) {
             title = { Text("Location Permission") },
             text = { Text("CrimeSnap needs location access to verify incident coordinates.") },
             confirmButton = {
-                TextButton(onClick = { 
+                TextButton(onClick = {
                     showPermissionDialog = false
                     platform.requestLocationPermission()
                 }) { Text("Allow") }
@@ -372,7 +452,7 @@ fun ReportScreen(onBack: () -> Unit, onSubmit: (CrimeReport) -> Unit) {
             title = { Text("GPS Disabled") },
             text = { Text("Please turn on GPS to capture the incident location.") },
             confirmButton = {
-                TextButton(onClick = { 
+                TextButton(onClick = {
                     showGpsDialog = false
                     platform.requestLocationSettings()
                 }) { Text("Turn On") }
@@ -389,7 +469,7 @@ fun ReportScreen(onBack: () -> Unit, onSubmit: (CrimeReport) -> Unit) {
             title = { Text("Camera Permission") },
             text = { Text("CrimeSnap needs camera access to capture visual evidence.") },
             confirmButton = {
-                TextButton(onClick = { 
+                TextButton(onClick = {
                     showCameraPermissionDialog = false
                     platform.requestCameraPermission()
                 }) { Text("Allow") }
@@ -406,7 +486,7 @@ fun ReportScreen(onBack: () -> Unit, onSubmit: (CrimeReport) -> Unit) {
             title = { Text("Microphone Permission") },
             text = { Text("CrimeSnap needs microphone access to record audio evidence.") },
             confirmButton = {
-                TextButton(onClick = { 
+                TextButton(onClick = {
                     showAudioPermissionDialog = false
                     platform.requestAudioPermission()
                 }) { Text("Allow") }
@@ -486,21 +566,29 @@ fun ReportScreen(onBack: () -> Unit, onSubmit: (CrimeReport) -> Unit) {
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 EvidenceButton(
-                    icon = Icons.Default.PhotoCamera, 
+                    icon = Icons.Default.PhotoCamera,
                     label = "Photo",
                     isCaptured = photoPath != null,
-                    onClick = { 
+                    onClick = {
                         platform.capturePhoto { result ->
-                            if (result == "PERMISSION_REQUIRED") showCameraPermissionDialog = true
-                            else photoPath = result
+                            if (result == "PERMISSION_REQUIRED") {
+                                showCameraPermissionDialog = true
+                            } else if (result != null) {
+                                photoPath = result
+                                isAnalyzing = true
+                                platform.analyzeImage(result) { detection ->
+                                    detectionResult = detection
+                                    isAnalyzing = false
+                                }
+                            }
                         }
                     }
                 )
                 EvidenceButton(
-                    icon = Icons.Default.Videocam, 
+                    icon = Icons.Default.Videocam,
                     label = "Video",
                     isCaptured = videoPath != null,
-                    onClick = { 
+                    onClick = {
                         platform.captureVideo { result ->
                             if (result == "PERMISSION_REQUIRED") showCameraPermissionDialog = true
                             else videoPath = result
@@ -508,10 +596,10 @@ fun ReportScreen(onBack: () -> Unit, onSubmit: (CrimeReport) -> Unit) {
                     }
                 )
                 EvidenceButton(
-                    icon = Icons.Default.Mic, 
+                    icon = Icons.Default.Mic,
                     label = "Audio",
                     isCaptured = audioPath != null,
-                    onClick = { 
+                    onClick = {
                         platform.recordAudio { result ->
                             if (result == "PERMISSION_REQUIRED") showAudioPermissionDialog = true
                             else audioPath = result
@@ -519,96 +607,176 @@ fun ReportScreen(onBack: () -> Unit, onSubmit: (CrimeReport) -> Unit) {
                     }
                 )
             }
-            
+
+            if (isAnalyzing) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("AI analyzing photo...", style = MaterialTheme.typography.bodySmall)
+                }
+            } else if (detectionResult != null) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Psychology, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text("AI Detection Result", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            Text(
+                                "Detected: ${detectionResult?.label} (${(detectionResult?.confidence ?: 0f * 100).toInt()}%)",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
+            }
+
             // Uploaded Files List
             if (photoPath != null || videoPath != null || audioPath != null) {
                 Text(
-                    text = "Uploaded Evidence Files:",
+                    text = "Attached Evidence Details:",
                     style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.padding(top = 8.dp)
+                    modifier = Modifier.padding(top = 8.dp),
+                    color = MaterialTheme.colorScheme.primary
                 )
-                
+
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.medium)
-                        .padding(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), MaterialTheme.shapes.medium)
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    FileItem(platform.getFileInfo(photoPath))
-                    FileItem(platform.getFileInfo(videoPath))
-                    FileItem(platform.getFileInfo(audioPath))
+                    if (photoPath != null) FileItem(platform.getFileInfo(photoPath), "IMAGE")
+                    if (videoPath != null) FileItem(platform.getFileInfo(videoPath), "VIDEO")
+                    if (audioPath != null) FileItem(platform.getFileInfo(audioPath), "AUDIO")
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Button(
-                onClick = { 
-                    if (crimeType.isNotEmpty() && (detectedLocation.contains("Lat:") || detectedLocation == "Location Captured")) {
-                        val report = CrimeReport(
-                            id = (1000..9999).random().toString(),
-                            type = crimeType,
-                            location = detectedLocation,
-                            description = description,
-                            date = getCurrentDate(),
-                            photoPath = photoPath,
-                            videoPath = videoPath,
-                            audioPath = audioPath
-                        )
-                        onSubmit(report)
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                enabled = crimeType.isNotEmpty() && (detectedLocation.contains("Lat:") || detectedLocation == "Location Captured" || detectedLocation.length > 15)
-            ) {
-                Text("Submit Verified Report", fontSize = 18.sp)
+            if (isUploading) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                Text("Saving report and evidence...", modifier = Modifier.align(Alignment.CenterHorizontally))
+            } else {
+                Button(
+                    onClick = {
+                        if (crimeType.isNotEmpty() && (detectedLocation.contains("Lat:") || detectedLocation == "Location Captured")) {
+                            isUploading = true
+                            scope.launch {
+                                try {
+                                    val timestamp = System.currentTimeMillis()
+                                    var imageUrl: String? = null
+
+                                    photoPath?.let { path ->
+                                        imageUrl = platform.uploadFile(path, "reports/$timestamp/image.jpg")
+                                    }
+
+                                    val reportMap = mapOf(
+                                        "userId" to (user?.id ?: "anonymous"),
+                                        "type" to crimeType,
+                                        "location" to detectedLocation,
+                                        "description" to description,
+                                        "timestamp" to timestamp,
+                                        "imageUrl" to imageUrl,
+                                        "latitude" to currentLatitude,
+                                        "longitude" to currentLongitude,
+                                        "date" to getCurrentDate()
+                                    )
+
+                                    Firebase.firestore.collection("reports").add(reportMap)
+
+                                    val report = CrimeReport(
+                                        id = timestamp.toString(),
+                                        userId = user?.id ?: "anonymous",
+                                        type = crimeType,
+                                        location = detectedLocation,
+                                        description = description,
+                                        date = getCurrentDate(),
+                                        timestamp = timestamp,
+                                        photoPath = photoPath,
+                                        imageUrl = imageUrl,
+                                        detectionResult = detectionResult,
+                                        videoPath = videoPath,
+                                        audioPath = audioPath,
+                                        latitude = currentLatitude,
+                                        longitude = currentLongitude
+                                    )
+
+                                    isUploading = false
+                                    onSubmit(report)
+                                } catch (e: Exception) {
+                                    isUploading = false
+                                }
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    enabled = crimeType.isNotEmpty() && (detectedLocation.contains("Lat:") || detectedLocation == "Location Captured" || detectedLocation.length > 15)
+                ) {
+                    Text("Submit Verified Report", fontSize = 18.sp)
+                }
             }
         }
     }
 }
 
 @Composable
-fun FileItem(fileInfo: FileInfo?) {
+fun FileItem(fileInfo: FileInfo?, forcedType: String) {
     fileInfo?.let {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp),
+                .background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.small)
+                .padding(8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                 Icon(
-                    imageVector = when(it.type) {
-                        "Photo" -> Icons.Default.Image
-                        "Video" -> Icons.Default.VideoFile
-                        else -> Icons.Default.AudioFile
+                    imageVector = when(forcedType) {
+                        "IMAGE" -> Icons.Default.Image
+                        "VIDEO" -> Icons.Default.VideoFile
+                        else -> Icons.Default.Mic
                     },
                     contentDescription = null,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(24.dp),
                     tint = MaterialTheme.colorScheme.primary
                 )
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(12.dp))
                 Column {
-                    Text(text = it.type, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                    Text(text = it.name, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                    Text(
+                        text = "$forcedType EVIDENCE",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                    Text(
+                        text = it.name,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1
+                    )
                 }
             }
-            Text(
-                text = it.sizeFormatted,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.secondary
-            )
+            Badge(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+            ) {
+                Text(it.sizeFormatted, modifier = Modifier.padding(4.dp))
+            }
         }
     }
 }
 
 @Composable
 fun EvidenceButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector, 
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     isCaptured: Boolean,
     onClick: () -> Unit
@@ -625,17 +793,21 @@ fun EvidenceButton(
             Icon(icon, contentDescription = label, modifier = Modifier.size(32.dp))
         }
         Text(
-            text = if (isCaptured) "Captured" else label, 
-            style = MaterialTheme.typography.labelMedium, 
+            text = if (isCaptured) "Captured" else label,
+            style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(top = 4.dp),
             color = if (isCaptured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
         )
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HistoryScreen(historyItems: List<CrimeReport>, onBack: () -> Unit, onReportClick: (CrimeReport) -> Unit) {
+fun HistoryScreen(
+    historyItems: List<CrimeReport>,
+    isLoading: Boolean,
+    onBack: () -> Unit,
+    onReportClick: (CrimeReport) -> Unit
+) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -652,12 +824,16 @@ fun HistoryScreen(historyItems: List<CrimeReport>, onBack: () -> Unit, onReportC
             )
         }
     ) { padding ->
-        if (historyItems.isEmpty()) {
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else if (historyItems.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
-                        Icons.Default.History, 
-                        contentDescription = null, 
+                        Icons.Default.History,
+                        contentDescription = null,
                         modifier = Modifier.size(64.dp),
                         tint = MaterialTheme.colorScheme.outline
                     )
@@ -712,7 +888,6 @@ fun HistoryScreen(historyItems: List<CrimeReport>, onBack: () -> Unit, onReportC
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReportDetailScreen(report: CrimeReport?, onBack: () -> Unit) {
     val platform = getPlatform()
@@ -744,9 +919,30 @@ fun ReportDetailScreen(report: CrimeReport?, onBack: () -> Unit) {
                 DetailItem(label = "Crime Type", value = report.type, style = MaterialTheme.typography.headlineSmall)
                 DetailItem(label = "Location", value = report.location)
                 DetailItem(label = "Date", value = report.date)
-                
+
+                if (report.detectionResult != null) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Psychology, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Column {
+                                Text("AI Verification", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "Detected: ${report.detectionResult.label} (${(report.detectionResult.confidence * 100).toInt()}%)",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                        }
+                    }
+                }
+
                 HorizontalDivider()
-                
+
                 Text(
                     text = "Description",
                     style = MaterialTheme.typography.titleMedium,
@@ -756,41 +952,43 @@ fun ReportDetailScreen(report: CrimeReport?, onBack: () -> Unit) {
                     text = if (report.description.isEmpty()) "No description provided." else report.description,
                     style = MaterialTheme.typography.bodyLarge
                 )
-                
+
                 HorizontalDivider()
-                
+
                 Text(
-                    text = "Evidence Captured (Read-Only)",
+                    text = "Evidence Captured (Read-Only View)",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
                 )
-                
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    EvidenceStatus(icon = Icons.Default.PhotoCamera, label = "Photo", isAvailable = report.photoPath != null)
+                    EvidenceStatus(icon = Icons.Default.PhotoCamera, label = "Photo", isAvailable = report.imageUrl != null || report.photoPath != null)
                     EvidenceStatus(icon = Icons.Default.Videocam, label = "Video", isAvailable = report.videoPath != null)
                     EvidenceStatus(icon = Icons.Default.Mic, label = "Audio", isAvailable = report.audioPath != null)
                 }
-                
-                // Detailed Evidence File Info
-                if (report.photoPath != null || report.videoPath != null || report.audioPath != null) {
+
+                if (report.imageUrl != null || report.photoPath != null || report.videoPath != null || report.audioPath != null) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.medium)
-                            .padding(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), MaterialTheme.shapes.medium)
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        FileItem(platform.getFileInfo(report.photoPath))
-                        FileItem(platform.getFileInfo(report.videoPath))
-                        FileItem(platform.getFileInfo(report.audioPath))
+                        if (report.imageUrl != null || report.photoPath != null) {
+                            FileItem(platform.getFileInfo(report.imageUrl ?: report.photoPath), "IMAGE")
+                        }
+                        if (report.videoPath != null) FileItem(platform.getFileInfo(report.videoPath), "VIDEO")
+                        if (report.audioPath != null) FileItem(platform.getFileInfo(report.audioPath), "AUDIO")
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.height(16.dp))
-                
+
                 OutlinedCard(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
@@ -802,7 +1000,7 @@ fun ReportDetailScreen(report: CrimeReport?, onBack: () -> Unit) {
                         Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = "Evidence is stored securely for investigation purposes.",
+                            text = "This evidence has been securely uploaded and cannot be modified.",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -831,7 +1029,7 @@ fun EvidenceStatus(icon: androidx.compose.ui.graphics.vector.ImageVector, label:
             modifier = Modifier.size(40.dp)
         )
         Text(
-            text = if (isAvailable) "Captured" else "N/A",
+            text = if (isAvailable) "Uploaded" else "N/A",
             style = MaterialTheme.typography.labelSmall,
             fontWeight = if (isAvailable) FontWeight.Bold else FontWeight.Normal,
             color = if (isAvailable) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
@@ -839,7 +1037,6 @@ fun EvidenceStatus(icon: androidx.compose.ui.graphics.vector.ImageVector, label:
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(user: User?, onBack: () -> Unit) {
     Scaffold(
@@ -853,11 +1050,11 @@ fun ProfileScreen(user: User?, onBack: () -> Unit) {
                 }
             )
         }
-    ) { padding ->
+    ) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(paddingValues)
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -870,9 +1067,9 @@ fun ProfileScreen(user: User?, onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(16.dp))
             Text(text = user?.name ?: "Guest User", style = MaterialTheme.typography.headlineMedium)
             Text(text = user?.email ?: "Not available", style = MaterialTheme.typography.bodyMedium)
-            
+
             Spacer(modifier = Modifier.height(32.dp))
-            
+
             OutlinedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(text = "Account Details", fontWeight = FontWeight.Bold)
@@ -886,7 +1083,6 @@ fun ProfileScreen(user: User?, onBack: () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AboutScreen(onBack: () -> Unit) {
     Scaffold(
@@ -900,11 +1096,11 @@ fun AboutScreen(onBack: () -> Unit) {
                 }
             )
         }
-    ) { padding ->
+    ) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(paddingValues)
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -916,7 +1112,7 @@ fun AboutScreen(onBack: () -> Unit) {
             Text(
                 text = "CrimeSnap is a community-driven incident reporting tool designed to empower citizens and improve local safety. By providing verified, geo-tagged reports with multi-media evidence, we help authorities respond faster and more effectively."
             )
-            
+
             Text(
                 text = "Key Features",
                 style = MaterialTheme.typography.titleLarge,
@@ -925,10 +1121,11 @@ fun AboutScreen(onBack: () -> Unit) {
             Text(
                 text = "• Auto-location tagging for integrity\n" +
                        "• Photo, Video, and Audio evidence\n" +
+                       "• AI-powered visual evidence verification\n" +
                        "• Community safety dashboard\n" +
                        "• Real-time incident updates"
             )
-            
+
             Spacer(modifier = Modifier.weight(1f))
             Text(
                 text = "© 2023 CrimeSnap Team",

@@ -13,9 +13,6 @@
             <action android:name="android.media.action.IMAGE_CAPTURE" />
         </intent>
         <intent>
-            <action android:name="android.media.action.VIDEO_CAPTURE" />
-        </intent>
-        <intent>
             <action android:name="android.provider.MediaStore.RECORD_SOUND" />
         </intent>
     </queries>
@@ -40,7 +37,7 @@
 
         <activity
             android:exported="true"
-            android:name=".MainActivity">
+            android:name="com.example.crimesnap.MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

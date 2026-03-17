@@ -1,85 +1,103 @@
 package com.example.crimesnap
 
-import android.app.Activity
-import android.content.Intent
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInAccount
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
-import com.google.android.gms.common.api.ApiException
+import androidx.credentials.ClearCredentialStateRequest
+import androidx.credentials.CredentialManager
+import androidx.credentials.GetCredentialRequest
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import dev.gitlive.firebase.Firebase
+import dev.gitlive.firebase.auth.GoogleAuthProvider
+import dev.gitlive.firebase.auth.auth
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.launch
 
-class AndroidAuthManager : AuthManager {
+actual class AuthManager {
+    private val auth = Firebase.auth
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    
     private val _currentUser = MutableStateFlow<User?>(null)
-    override val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
-
-    private fun getGoogleSignInClient() = GoogleSignIn.getClient(
-        AndroidPlatform.currentActivity!!,
-        GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestEmail()
-            .requestProfile()
-            .build()
-    )
+    actual val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
 
     init {
-        // Check for existing user
-        AndroidPlatform.appContext?.let { context ->
-            GoogleSignIn.getLastSignedInAccount(context)?.let { account ->
-                _currentUser.value = account.toUser()
+        scope.launch {
+            auth.authStateChanged.collect { firebaseUser ->
+                _currentUser.value = firebaseUser?.let {
+                    User(
+                        id = it.uid,
+                        name = it.displayName,
+                        email = it.email,
+                        photoUrl = it.photoURL
+                    )
+                }
             }
         }
     }
 
-    override suspend fun signIn(): Result<User> {
+    actual suspend fun signIn(): Result<User> {
         val activity = AndroidPlatform.currentActivity ?: return Result.failure(Exception("Activity not found"))
-        val client = getGoogleSignInClient()
-        
+        val credentialManager = CredentialManager.create(activity)
+
+        val googleIdOption = GetGoogleIdOption.Builder()
+            .setFilterByAuthorizedAccounts(false)
+            .setServerClientId("705077492406-d5tj48pocttsdmabf7bsmeqo5eb08lns.apps.googleusercontent.com")
+            .setAutoSelectEnabled(true)
+            .build()
+
+        val request = GetCredentialRequest.Builder()
+            .addCredentialOption(googleIdOption)
+            .build()
+
         return try {
-            val intent = client.signInIntent
-            activity.startActivityForResult(intent, RC_SIGN_IN)
-            Result.failure(Exception("SIGN_IN_PENDING")) 
+            val result = credentialManager.getCredential(activity, request)
+            val credential = result.credential
+            
+            if (credential is androidx.credentials.CustomCredential && 
+                credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+                
+                val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
+                val idToken = googleIdTokenCredential.idToken
+                
+                val firebaseCredential = GoogleAuthProvider.credential(idToken, null)
+                
+                val authResult = auth.signInWithCredential(firebaseCredential)
+                val user = authResult.user?.let {
+                    User(
+                        id = it.uid,
+                        name = it.displayName,
+                        email = it.email,
+                        photoUrl = it.photoURL
+                    )
+                } ?: throw Exception("Sign in failed: No user returned")
+                
+                Result.success(user)
+            } else {
+                Result.failure(Exception("Unexpected credential type: ${credential.type}"))
+            }
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    override suspend fun signOut() {
-        getGoogleSignInClient().signOut().await()
-        _currentUser.value = null
-    }
-
-    override fun updateReportsCount(count: Int) {
-        _currentUser.update { user ->
-            user?.copy(reportsCount = count)
+    actual suspend fun signOut() {
+        auth.signOut()
+        AndroidPlatform.currentActivity?.let { activity ->
+            try {
+                CredentialManager.create(activity).clearCredentialState(ClearCredentialStateRequest())
+            } catch (e: Exception) {}
         }
-    }
-
-    fun handleSignInResult(data: Intent?) {
-        val task = GoogleSignIn.getSignedInAccountFromIntent(data)
-        try {
-            val account = task.getResult(ApiException::class.java)
-            _currentUser.value = account.toUser()
-        } catch (e: ApiException) {
-            _currentUser.value = null
-        }
-    }
-
-    private fun GoogleSignInAccount.toUser() = User(
-        id = id ?: "",
-        name = displayName,
-        email = email,
-        photoUrl = photoUrl?.toString(),
-        joinDate = "Oct 2023" // In real app, fetch from backend
-    )
-
-    companion object {
-        const val RC_SIGN_IN = 9001
     }
 }
 
-private val androidAuthManager = AndroidAuthManager()
-actual fun getAuthManager(): AuthManager = androidAuthManager
-fun getAndroidAuthManager(): AndroidAuthManager = androidAuthManager
+private var authManagerInstance: AuthManager? = null
+
+actual fun getAuthManager(): AuthManager {
+    if (authManagerInstance == null) {
+        authManagerInstance = AuthManager()
+    }
+    return authManagerInstance!!
+}

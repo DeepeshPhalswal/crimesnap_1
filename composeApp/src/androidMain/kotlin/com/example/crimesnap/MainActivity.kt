@@ -31,10 +31,8 @@ class MainActivity : ComponentActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         
-        if (requestCode == AndroidAuthManager.RC_SIGN_IN) {
-            getAndroidAuthManager().handleSignInResult(data)
-            return
-        }
+        // RC_SIGN_IN is not needed with Credential Manager, 
+        // but if you were using GoogleSignIn, you would handle it here.
 
         if (resultCode == Activity.RESULT_OK) {
             when (requestCode) {

@@ -40,6 +40,14 @@ interface Platform {
     fun recordAudio(onResult: (String?) -> Unit)
     
     fun getFileInfo(path: String?): FileInfo?
+
+    // AI & Firebase
+    fun analyzeImage(imagePath: String, onResult: (DetectionResult?) -> Unit)
+    suspend fun uploadFile(localPath: String, remotePath: String): String?
+    suspend fun saveReport(report: CrimeReport): Boolean
+    
+    // Utils
+    fun getTimestamp(): Long
 }
 
 @Composable
